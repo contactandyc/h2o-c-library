@@ -63,19 +63,25 @@ ENV PATH="/opt/venv/bin:${PATH}"
 
 # --- Build & install libuv ---
 RUN set -eux; \
-  git clone --depth 1 --branch v1.48.0 --single-branch "https://github.com/libuv/libuv.git" "libuv" && \
-  mkdir -p build/libuv && cd build/libuv && \
-  cmake ../../libuv -DCMAKE_INSTALL_PREFIX=/usr/local -DBUILD_TESTING=OFF && \
-  make -j"$(nproc)" && sudo make install && \
-  cd ../.. && rm -rf libuv
+    git clone --depth 1 --branch v1.48.0 --single-branch "https://github.com/libuv/libuv.git" "libuv"; \
+    cd "libuv"; \
+    cmake -S . -B build -DCMAKE_INSTALL_PREFIX=/usr/local -DBUILD_TESTING=OFF && \
+    cmake --build build -j"$(nproc)" && \
+    sudo cmake --install build
+; \
+    cd ..; \
+    rm -rf "libuv"
 
 # --- Build & install h2o ---
 RUN set -eux; \
-  git clone --depth 1 --branch v2.2.6 --single-branch "https://github.com/h2o/h2o.git" "h2o" && \
-  mkdir -p build/h2o && cd build/h2o && \
-  cmake ../../h2o -DCMAKE_INSTALL_PREFIX=/usr/local -DWITH_MRUBY=OFF -DBUILD_SHARED_LIBS=OFF -DCMAKE_POLICY_VERSION_MINIMUM=3.5 && \
-  make -j"$(nproc)" && sudo make install && \
-  cd ../.. && rm -rf h2o
+    git clone --depth 1 --branch v2.2.6 --single-branch "https://github.com/h2o/h2o.git" "h2o"; \
+    cd "h2o"; \
+    cmake -S . -B build -DCMAKE_INSTALL_PREFIX=/usr/local -DWITH_MRUBY=OFF -DBUILD_SHARED_LIBS=OFF -DCMAKE_POLICY_VERSION_MINIMUM=3.5 && \
+    cmake --build build -j"$(nproc)" && \
+    sudo cmake --install build
+; \
+    cd ..; \
+    rm -rf "h2o"
 
 
 # --- Build & install this project --------------------------------------------
