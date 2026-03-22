@@ -21,13 +21,13 @@ sudo cmake --install .
 
 
 
-## Install dependencies (from `cmake.libraries`)
+## Install dependencies (from `deps.libraries`)
 
 
 ### System packages (required)
 
 ```bash
-sudo apt-get update && sudo apt-get install -y libssl-dev zlib1g-dev
+sudo apt-get update && sudo apt-get install -y zlib1g-dev libssl-dev
 ```
 
 
