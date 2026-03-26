@@ -1,10 +1,14 @@
 project_title: H2O C Library
 version: 0.0.1
+stack: c/cmake
+date_created: 2019-08-01
 
-profile: andy-curtis/andy-curtis
-template: cmake-c-git
+base_templates:
+  repo: https://github.com/contactandyc/scaffold-templates.git
+  ref: main
 
 language: C CXX
+
 depends_on:
   - common/h2o
   - common/libuv
