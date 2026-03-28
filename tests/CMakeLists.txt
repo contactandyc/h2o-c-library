@@ -16,11 +16,24 @@ option(A_ENABLE_COVERAGE "Enable code coverage instrumentation" OFF)
 
 find_library(M_LIB m)
 
-# ---- Test executables ----
-set(TEST_EXECUTABLES "")
-add_executable(test_h2o  src/test_h2o.c)
+find_package(libuv CONFIG REQUIRED)
+find_package(OpenSSL REQUIRED)
 
-target_include_directories(test_h2o PRIVATE  ${CMAKE_CURRENT_SOURCE_DIR}/src)
+# Fallback for standalone test builds (when not included via add_subdirectory)
+if(NOT TARGET h2o_c_library::h2o_c_library)
+  find_package(h2o_c_library CONFIG REQUIRED)
+endif()
+
+set(TEST_EXECUTABLES "")
+
+# ---- Targets ----
+add_executable(test_h2o
+  src/test_h2o.c
+)
+
+target_include_directories(test_h2o PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/../src
+)
 
 list(APPEND TEST_EXECUTABLES test_h2o)
 
@@ -35,9 +48,10 @@ if("CXX" IN_LIST CMAKE_PROJECT_LANGUAGES)
   )
 endif()
 
-if(NOT TARGET h2o_c_library::h2o_c_library)
-  find_package(h2o_c_library CONFIG REQUIRED)
-endif()
+target_link_libraries(test_h2o PRIVATE h2o)
+target_link_libraries(test_h2o PRIVATE libuv::uv)
+target_link_libraries(test_h2o PRIVATE OpenSSL::Crypto)
+target_link_libraries(test_h2o PRIVATE OpenSSL::SSL)
 target_link_libraries(test_h2o PRIVATE h2o_c_library::h2o_c_library)
 
 if(M_LIB)
