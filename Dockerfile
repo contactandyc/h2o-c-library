@@ -15,6 +15,7 @@ RUN apt-get update && apt-get install -y \
     git \
     curl \
     wget \
+    abigail-tools \
     tar \
     unzip \
     zip \
@@ -25,12 +26,12 @@ RUN apt-get update && apt-get install -y \
 
 # Development tooling (optional)
 RUN apt-get update && apt-get install -y \
-    valgrind \
-    gdb \
-    perl \
     autoconf \
     automake \
+    gdb \
     libtool \
+    perl \
+    valgrind \
  && rm -rf /var/lib/apt/lists/*
 
 # --- Install CMake from official binaries (arch-aware) ------------------------
@@ -54,9 +55,6 @@ RUN useradd --create-home --shell /bin/bash dev && \
 USER dev
 WORKDIR /workspace
 
-# --- Optional Python venv for tools ------------------------------------------
-RUN python3 -m venv /opt/venv && /opt/venv/bin/pip install --upgrade pip
-ENV PATH="/opt/venv/bin:${PATH}"
 
 # --- Build & install libuv ---
 RUN set -eux; \
@@ -64,22 +62,18 @@ RUN set -eux; \
     cd "libuv"; \
     cmake -S . -B build -DCMAKE_INSTALL_PREFIX=/usr/local -DBUILD_TESTING=OFF && \
     cmake --build build -j"$(nproc)" && \
-    sudo cmake --install build
-; \
+    sudo cmake --install build; \
     cd ..; \
     rm -rf "libuv"
-
 # --- Build & install h2o ---
 RUN set -eux; \
     git clone --depth 1 --branch v2.2.6 --single-branch "https://github.com/h2o/h2o.git" "h2o"; \
     cd "h2o"; \
     cmake -S . -B build -DCMAKE_INSTALL_PREFIX=/usr/local -DWITH_MRUBY=OFF -DBUILD_SHARED_LIBS=OFF -DCMAKE_POLICY_VERSION_MINIMUM=3.5 && \
     cmake --build build -j"$(nproc)" && \
-    sudo cmake --install build
-; \
+    sudo cmake --install build; \
     cd ..; \
     rm -rf "h2o"
-
 
 # --- Build & install this project --------------------------------------------
 COPY --chown=dev:dev . /workspace/h2o-c-library
