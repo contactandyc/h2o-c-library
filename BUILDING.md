@@ -1,7 +1,7 @@
 # BUILDING
 
 This project: **H2O C Library**
-Version: **0.1.0**
+Version: **0.0.2**
 
 ## Local build
 
@@ -27,7 +27,7 @@ sudo cmake --install .
 ### System packages (required)
 
 ```bash
-sudo apt-get update && sudo apt-get install -y zlib1g-dev libssl-dev
+sudo apt-get update && sudo apt-get install -y libssl-dev zlib1g-dev
 ```
 
 
@@ -35,7 +35,7 @@ sudo apt-get update && sudo apt-get install -y zlib1g-dev libssl-dev
 ### Development tooling (optional)
 
 ```bash
-sudo apt-get update && sudo apt-get install -y valgrind gdb perl autoconf automake libtool
+sudo apt-get update && sudo apt-get install -y autoconf automake gdb libtool perl valgrind
 ```
 
 
