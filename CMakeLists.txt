@@ -7,7 +7,7 @@
 cmake_minimum_required(VERSION 3.20)
 
 project(h2o_c_library
-  VERSION 0.1.1
+  VERSION 0.1.2
   LANGUAGES C CXX
 )
 # ── Variant selection for the umbrella alias ──────────────────────────────────
