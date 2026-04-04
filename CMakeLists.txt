@@ -7,7 +7,7 @@
 cmake_minimum_required(VERSION 3.20)
 
 project(h2o_c_library
-  VERSION 0.1.0
+  VERSION 0.1.1
   LANGUAGES C CXX
 )
 # ── Variant selection for the umbrella alias ──────────────────────────────────
@@ -65,15 +65,10 @@ target_include_directories(h2o_c_library_debug PUBLIC
 set_target_properties(h2o_c_library_debug PROPERTIES
   C_STANDARD 23
   C_STANDARD_REQUIRED YES
+  CXX_STANDARD 17
+  CXX_STANDARD_REQUIRED YES
   POSITION_INDEPENDENT_CODE ON
 )
-
-if("CXX" IN_LIST CMAKE_PROJECT_LANGUAGES)
-  set_target_properties(h2o_c_library_debug PROPERTIES
-    CXX_STANDARD 17
-    CXX_STANDARD_REQUIRED YES
-  )
-endif()
 
 target_link_libraries(h2o_c_library_debug PUBLIC
   h2o
@@ -102,15 +97,10 @@ target_include_directories(h2o_c_library_memory PUBLIC
 set_target_properties(h2o_c_library_memory PROPERTIES
   C_STANDARD 23
   C_STANDARD_REQUIRED YES
+  CXX_STANDARD 17
+  CXX_STANDARD_REQUIRED YES
   POSITION_INDEPENDENT_CODE ON
 )
-
-if("CXX" IN_LIST CMAKE_PROJECT_LANGUAGES)
-  set_target_properties(h2o_c_library_memory PROPERTIES
-    CXX_STANDARD 17
-    CXX_STANDARD_REQUIRED YES
-  )
-endif()
 
 target_link_libraries(h2o_c_library_memory PUBLIC
   h2o
@@ -142,15 +132,10 @@ target_include_directories(h2o_c_library_static PUBLIC
 set_target_properties(h2o_c_library_static PROPERTIES
   C_STANDARD 23
   C_STANDARD_REQUIRED YES
+  CXX_STANDARD 17
+  CXX_STANDARD_REQUIRED YES
   POSITION_INDEPENDENT_CODE ON
 )
-
-if("CXX" IN_LIST CMAKE_PROJECT_LANGUAGES)
-  set_target_properties(h2o_c_library_static PROPERTIES
-    CXX_STANDARD 17
-    CXX_STANDARD_REQUIRED YES
-  )
-endif()
 
 target_link_libraries(h2o_c_library_static PUBLIC
   h2o
@@ -179,15 +164,10 @@ target_include_directories(h2o_c_library_shared PUBLIC
 set_target_properties(h2o_c_library_shared PROPERTIES
   C_STANDARD 23
   C_STANDARD_REQUIRED YES
+  CXX_STANDARD 17
+  CXX_STANDARD_REQUIRED YES
   POSITION_INDEPENDENT_CODE ON
 )
-
-if("CXX" IN_LIST CMAKE_PROJECT_LANGUAGES)
-  set_target_properties(h2o_c_library_shared PROPERTIES
-    CXX_STANDARD 17
-    CXX_STANDARD_REQUIRED YES
-  )
-endif()
 
 target_link_libraries(h2o_c_library_shared PUBLIC
   h2o
@@ -225,6 +205,13 @@ set(_CFG_IN "${CMAKE_CURRENT_BINARY_DIR}/config.cmake.in")
 file(WRITE "${_CFG_IN}" [=[
 @PACKAGE_INIT@
 include(CMakeFindDependencyMacro)
+
+# Re-resolve PkgConfig dependencies for consumers
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(PC_H2O REQUIRED IMPORTED_TARGET libh2o)
+if(NOT TARGET h2o)
+  add_library(h2o ALIAS PkgConfig::PC_H2O)
+endif()
 
 if(NOT DEFINED A_BUILD_VARIANT OR A_BUILD_VARIANT STREQUAL "")
   set(A_BUILD_VARIANT "debug")
