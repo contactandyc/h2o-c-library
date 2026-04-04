@@ -40,13 +40,9 @@ list(APPEND TEST_EXECUTABLES test_h2o)
 set_target_properties(test_h2o PROPERTIES
   C_STANDARD 23
   C_STANDARD_REQUIRED YES
+  CXX_STANDARD 17
+  CXX_STANDARD_REQUIRED YES
 )
-if("CXX" IN_LIST CMAKE_PROJECT_LANGUAGES)
-  set_target_properties(test_h2o PROPERTIES
-    CXX_STANDARD 17
-    CXX_STANDARD_REQUIRED YES
-  )
-endif()
 
 target_link_libraries(test_h2o PRIVATE h2o)
 target_link_libraries(test_h2o PRIVATE libuv::uv)
