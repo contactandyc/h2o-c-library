@@ -43,6 +43,7 @@ typedef h2o_c_response_t *(*h2o_c_handle_request_cb)(
     void *arg,
     const char *method,
     const char *path,
+    h2o_c_header_t *in_headers,
     const char *body,
     size_t body_len
 );

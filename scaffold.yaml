@@ -1,5 +1,5 @@
 project_title: H2O C Library
-version: 0.1.4
+version: 0.1.5
 stack: c/cmake
 date_created: 2019-08-01
 
@@ -13,3 +13,4 @@ depends_on:
   - common/h2o
   - common/libuv
   - system/OpenSSL
+  - https://github.com/contactandyc/the-macro-library.git
