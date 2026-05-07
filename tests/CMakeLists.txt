@@ -8,6 +8,11 @@ cmake_minimum_required(VERSION 3.20)
 
 project(h2o_c_library_tests LANGUAGES C CXX)
 
+if(CMAKE_PREFIX_PATH)
+  include_directories("${CMAKE_PREFIX_PATH}/include")
+  link_directories("${CMAKE_PREFIX_PATH}/lib")
+endif()
+
 set(A_BUILD_VARIANT "debug" CACHE STRING
     "Variant to link via h2o_c_library::h2o_c_library (debug|memory|static|shared)")
 set_property(CACHE A_BUILD_VARIANT PROPERTY STRINGS debug memory static shared)
@@ -18,6 +23,7 @@ find_library(M_LIB m)
 
 find_package(libuv CONFIG REQUIRED)
 find_package(OpenSSL REQUIRED)
+find_package(the_macro_library CONFIG REQUIRED)
 
 # Fallback for standalone test builds (when not included via add_subdirectory)
 if(NOT TARGET h2o_c_library::h2o_c_library)
@@ -27,12 +33,17 @@ endif()
 set(TEST_EXECUTABLES "")
 
 # ---- Targets ----
+# ==============================================================================
+# test_h2o Target (Standard Test)
+# ==============================================================================
 add_executable(test_h2o
   src/test_h2o.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/h2o_c.c
 )
 
 target_include_directories(test_h2o PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/../src
+  ${CMAKE_CURRENT_SOURCE_DIR}/../include
 )
 
 list(APPEND TEST_EXECUTABLES test_h2o)
@@ -48,6 +59,7 @@ target_link_libraries(test_h2o PRIVATE h2o)
 target_link_libraries(test_h2o PRIVATE libuv::uv)
 target_link_libraries(test_h2o PRIVATE OpenSSL::Crypto)
 target_link_libraries(test_h2o PRIVATE OpenSSL::SSL)
+target_link_libraries(test_h2o PRIVATE the_macro_library::the_macro_library)
 target_link_libraries(test_h2o PRIVATE h2o_c_library::h2o_c_library)
 
 if(M_LIB)

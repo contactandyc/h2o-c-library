@@ -31,6 +31,9 @@ RUN apt-get update && apt-get install -y \
     gdb \
     libtool \
     perl \
+    python3 \
+    python3-pip \
+    python3-venv \
     valgrind \
  && rm -rf /var/lib/apt/lists/*
 
@@ -55,23 +58,36 @@ RUN useradd --create-home --shell /bin/bash dev && \
 USER dev
 WORKDIR /workspace
 
+# --- Optional Python venv for tools ------------------------------------------
+RUN sudo python3 -m venv /opt/venv && \
+    sudo chown -R dev:dev /opt/venv && \
+    /opt/venv/bin/pip install --upgrade pip
+ENV PATH="/opt/venv/bin:${PATH}"
 
 # --- Build & install libuv ---
 RUN set -eux; \
     git clone --depth 1 --branch v1.48.0 --single-branch "https://github.com/libuv/libuv.git" "libuv"; \
     cd "libuv"; \
-    cmake -S . -B build -DCMAKE_INSTALL_PREFIX=/usr/local -DBUILD_TESTING=OFF && \
+    cmake -S . -B build -DCMAKE_INSTALL_PREFIX=${PREFIX:-/usr/local} -DBUILD_TESTING=OFF && \
     cmake --build build -j"$(nproc)" && \
-    sudo cmake --install build; \
+    ${SUDO}cmake --install build; \
     cd ..; \
     rm -rf "libuv"
+# --- Build & install the-macro-library ---
+RUN set -eux; \
+    git clone --depth 1 --single-branch "https://github.com/contactandyc/the-macro-library.git" "the-macro-library"; \
+    cd "the-macro-library"; \
+    ./build.sh clean && \
+    ./build.sh install; \
+    cd ..; \
+    rm -rf "the-macro-library"
 # --- Build & install h2o ---
 RUN set -eux; \
     git clone --depth 1 --branch v2.2.6 --single-branch "https://github.com/h2o/h2o.git" "h2o"; \
     cd "h2o"; \
-    cmake -S . -B build -DCMAKE_INSTALL_PREFIX=/usr/local -DWITH_MRUBY=OFF -DBUILD_SHARED_LIBS=OFF -DCMAKE_POLICY_VERSION_MINIMUM=3.5 && \
+    cmake -S . -B build -DCMAKE_INSTALL_PREFIX=${PREFIX:-/usr/local} -DWITH_MRUBY=OFF -DBUILD_SHARED_LIBS=OFF -DCMAKE_POLICY_VERSION_MINIMUM=3.5 && \
     cmake --build build -j"$(nproc)" && \
-    sudo cmake --install build; \
+    ${SUDO}cmake --install build; \
     cd ..; \
     rm -rf "h2o"
 

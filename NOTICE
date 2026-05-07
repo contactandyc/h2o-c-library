@@ -4,3 +4,13 @@ H2O C Library
 Maintainer: Andy Curtis <contactandyc@gmail.com>
 
 Licensed under Apache-2.0 (see LICENSE)
+
+H2O:
+This software uses H2O (https://github.com/h2o/h2o).
+H2O is licensed under the MIT License.
+Copyright (c) 2014-2016 DeNA Co., Ltd., Kazuho Oku, Fastly, Inc.
+
+LIBUV:
+This software uses libuv (https://github.com/libuv/libuv).
+libuv is licensed under the MIT License.
+Copyright (c) 2015-present libuv project contributors.

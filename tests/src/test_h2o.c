@@ -20,18 +20,19 @@
 #define TEST_HOST "127.0.0.1"
 
 /* --- Handlers --- */
-static h2o_c_response_t *handle_ping(void *arg, const char *m, const char *p, const char *b, size_t l) {
-    (void)arg; (void)m; (void)p; (void)b; (void)l;
+// NEW SIGNATURE: Added h2o_c_header_t *h
+static h2o_c_response_t *handle_ping(void *arg, const char *m, const char *p, h2o_c_header_t *h, const char *b, size_t l) {
+    (void)arg; (void)m; (void)p; (void)h; (void)b; (void)l;
     return h2o_c_make_response(200, "OK", "pong", 4, "text/plain");
 }
 
-static h2o_c_response_t *handle_echo(void *arg, const char *m, const char *p, const char *b, size_t l) {
-    (void)arg; (void)m; (void)p;
+static h2o_c_response_t *handle_echo(void *arg, const char *m, const char *p, h2o_c_header_t *h, const char *b, size_t l) {
+    (void)arg; (void)m; (void)p; (void)h;
     return h2o_c_make_response(200, "OK", b, l, "application/octet-stream");
 }
 
-static h2o_c_response_t *handle_json(void *arg, const char *m, const char *p, const char *b, size_t l) {
-    (void)arg; (void)m; (void)p; (void)b; (void)l;
+static h2o_c_response_t *handle_json(void *arg, const char *m, const char *p, h2o_c_header_t *h, const char *b, size_t l) {
+    (void)arg; (void)m; (void)p; (void)h; (void)b; (void)l;
     return h2o_c_make_response(201, "Created", "{}", 2, "application/json");
 }
 
@@ -163,6 +164,7 @@ MACRO_TEST(test_method_routing) {
 }
 
 static void *concurrent_client_thread(void *arg) {
+    (void)arg; // Silence the unused parameter warning
     const char req[] = "GET /test/ping HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
     for(int i = 0; i < 50; i++) {
         int len = 0;

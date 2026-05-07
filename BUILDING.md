@@ -1,7 +1,7 @@
 # BUILDING
 
 This project: **H2O C Library**
-Version: **0.1.4**
+Version: **0.1.5**
 
 ## Local build
 
@@ -35,7 +35,7 @@ sudo apt-get update && sudo apt-get install -y libssl-dev zlib1g-dev
 ### Development tooling (optional)
 
 ```bash
-sudo apt-get update && sudo apt-get install -y autoconf automake gdb libtool perl valgrind
+sudo apt-get update && sudo apt-get install -y autoconf automake gdb libtool perl python3 python3-pip python3-venv valgrind
 ```
 
 
@@ -50,9 +50,9 @@ Clone & build:
 ```bash
 git clone --depth 1 --branch v1.48.0 --single-branch "https://github.com/libuv/libuv.git" "libuv"
 cd "libuv"
-cmake -S . -B build -DCMAKE_INSTALL_PREFIX=/usr/local -DBUILD_TESTING=OFF
+cmake -S . -B build -DCMAKE_INSTALL_PREFIX=${PREFIX:-/usr/local} -DBUILD_TESTING=OFF
 cmake --build build -j"$(nproc)"
-sudo cmake --install build
+${SUDO}cmake --install build
 cd ..
 rm -rf "libuv"
 ```
@@ -64,6 +64,20 @@ Install via package manager:
 
 ```bash
 sudo apt-get update && sudo apt-get install -y libssl-dev
+```
+
+
+### the-macro-library
+
+Clone & build:
+
+```bash
+git clone --depth 1 --single-branch "https://github.com/contactandyc/the-macro-library.git" "the-macro-library"
+cd "the-macro-library"
+./build.sh clean
+./build.sh install
+cd ..
+rm -rf "the-macro-library"
 ```
 
 
@@ -83,9 +97,9 @@ Clone & build:
 ```bash
 git clone --depth 1 --branch v2.2.6 --single-branch "https://github.com/h2o/h2o.git" "h2o"
 cd "h2o"
-cmake -S . -B build -DCMAKE_INSTALL_PREFIX=/usr/local -DWITH_MRUBY=OFF -DBUILD_SHARED_LIBS=OFF -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+cmake -S . -B build -DCMAKE_INSTALL_PREFIX=${PREFIX:-/usr/local} -DWITH_MRUBY=OFF -DBUILD_SHARED_LIBS=OFF -DCMAKE_POLICY_VERSION_MINIMUM=3.5
 cmake --build build -j"$(nproc)"
-sudo cmake --install build
+${SUDO}cmake --install build
 cd ..
 rm -rf "h2o"
 ```
