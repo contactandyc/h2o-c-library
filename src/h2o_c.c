@@ -38,82 +38,82 @@ static server_ctx_t g_server;
 
 /* --- H2O Request Handler (The Router) --- */
 
-static int on_req(h2o_handler_t *self, h2o_req_t *req) {
-    // 1. Convert H2O types to C strings for the user callback
-    // Note: H2O strings are NOT null-terminated, so we must be careful or use len
+static char* strndup_safe(const char* s, size_t n) {
+    char* p = malloc(n + 1);
+    if (p) { memcpy(p, s, n); p[n] = '\0'; }
+    return p;
+}
 
-    // --- Simple Router ---
+static int on_req(h2o_handler_t *self, h2o_req_t *req) {
     path_handler_t *ph = g_server.handlers;
     while (ph) {
         bool method_match = (ph->method == NULL || ph->method[0] == '\0');
         if (!method_match) {
-            if (h2o_memis(req->method.base, req->method.len, ph->method, strlen(ph->method))) {
-                method_match = true;
-            }
+            if (h2o_memis(req->method.base, req->method.len, ph->method, strlen(ph->method))) method_match = true;
         }
 
         bool path_match = (ph->path == NULL || ph->path[0] == '\0');
         if (!path_match) {
-            // Prefix match
-            if (req->path.len >= strlen(ph->path) &&
-                memcmp(req->path.base, ph->path, strlen(ph->path)) == 0) {
-                path_match = true;
-            }
+            if (req->path.len >= strlen(ph->path) && memcmp(req->path.base, ph->path, strlen(ph->path)) == 0) path_match = true;
         }
 
         if (method_match && path_match) {
-            // FOUND HANDLER
-
-            // Prepare Method/Path as C-Strings for compatibility
             char method_buf[16];
             size_t mlen = req->method.len < 15 ? req->method.len : 15;
             memcpy(method_buf, req->method.base, mlen);
             method_buf[mlen] = '\0';
 
-            // CALL USER
-            // Note: req->entity.base might be NULL if content-length is 0
             const char *body_ptr = req->entity.base ? req->entity.base : "";
 
-            h2o_c_response_t *resp = ph->cb(
-                ph->arg,
-                method_buf,
-                req->path_normalized.base, // H2O normalized path
-                body_ptr,                  // ZERO-COPY BODY POINTER
-                req->entity.len
-            );
+            // --- NEW: Parse incoming headers ---
+            h2o_c_header_t *in_headers = NULL;
+            h2o_c_header_t *last_in = NULL;
+            for (size_t i = 0; i != req->headers.size; ++i) {
+                h2o_c_header_t *h = calloc(1, sizeof(h2o_c_header_t));
+                h->key = strndup_safe(req->headers.entries[i].name->base, req->headers.entries[i].name->len);
+                h->value = strndup_safe(req->headers.entries[i].value.base, req->headers.entries[i].value.len);
+                if (!in_headers) in_headers = h;
+                else last_in->next = h;
+                last_in = h;
+            }
+
+            // Call User Callback
+            h2o_c_response_t *resp = ph->cb(ph->arg, method_buf, req->path_normalized.base, in_headers, body_ptr, req->entity.len);
+
+            // Cleanup incoming headers
+            h2o_c_header_t *h_curr = in_headers;
+            while(h_curr) {
+                h2o_c_header_t *next = h_curr->next;
+                free(h_curr->key);
+                free(h_curr->value);
+                free(h_curr);
+                h_curr = next;
+            }
 
             if (!resp) {
-                // User returned NULL -> treated as "Pass to next"
                 ph = ph->next;
                 continue;
             }
 
-            // --- SEND RESPONSE ---
             req->res.status = resp->status_code;
             req->res.reason = (resp->status_message) ? resp->status_message : "OK";
 
-            // Headers
             h2o_c_header_t *h = resp->headers;
             while(h) {
-                h2o_add_header_by_str(&req->pool, &req->res.headers,
-                                      h->key, strlen(h->key), 0, NULL,
-                                      h->value, strlen(h->value));
+                h2o_add_header_by_str(&req->pool, &req->res.headers, h->key, strlen(h->key), 0, NULL, h->value, strlen(h->value));
                 h = h->next;
             }
 
-            // Body
             h2o_send_inline(req, resp->body, resp->body_len);
 
-            // Cleanup user response
             if (resp->destroy) resp->destroy(resp);
             else free(resp);
 
-            return 0; // Handled
+            return 0;
         }
         ph = ph->next;
     }
-
-    return -1; // Not handled
+    return -1;
 }
 
 /* --- Libuv Accept Shim --- */

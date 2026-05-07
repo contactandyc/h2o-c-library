@@ -7,9 +7,14 @@
 cmake_minimum_required(VERSION 3.20)
 
 project(h2o_c_library
-  VERSION 0.1.4
+  VERSION 0.1.5
   LANGUAGES C CXX
 )
+
+if(CMAKE_PREFIX_PATH)
+  include_directories("${CMAKE_PREFIX_PATH}/include")
+  link_directories("${CMAKE_PREFIX_PATH}/lib")
+endif()
 # ── Variant selection for the umbrella alias ──────────────────────────────────
 set(A_BUILD_VARIANT "debug" CACHE STRING
     "Umbrella choice for in-tree linking (debug|memory|static|shared)")
@@ -43,6 +48,7 @@ include(GNUInstallDirs)
 # ---- Dependencies (Standard CMake) ----
 find_package(libuv CONFIG REQUIRED)
 find_package(OpenSSL REQUIRED)
+find_package(the_macro_library CONFIG REQUIRED)
 
 # ---- Dependencies (PkgConfig Shims) ----
 find_package(PkgConfig REQUIRED)
@@ -75,6 +81,7 @@ target_link_libraries(h2o_c_library_debug PUBLIC
   libuv::uv
   OpenSSL::Crypto
   OpenSSL::SSL
+  the_macro_library::the_macro_library
 )
 
 target_compile_options(h2o_c_library_debug PRIVATE ${_A_DEBUG_OPTS})
@@ -107,6 +114,7 @@ target_link_libraries(h2o_c_library_memory PUBLIC
   libuv::uv
   OpenSSL::Crypto
   OpenSSL::SSL
+  the_macro_library::the_macro_library
 )
 
 target_compile_options(h2o_c_library_memory PRIVATE ${_A_DEBUG_OPTS})
@@ -142,6 +150,7 @@ target_link_libraries(h2o_c_library_static PUBLIC
   libuv::uv
   OpenSSL::Crypto
   OpenSSL::SSL
+  the_macro_library::the_macro_library
 )
 
 target_compile_options(h2o_c_library_static PRIVATE ${_A_RELEASE_OPTS})
@@ -174,6 +183,7 @@ target_link_libraries(h2o_c_library_shared PUBLIC
   libuv::uv
   OpenSSL::Crypto
   OpenSSL::SSL
+  the_macro_library::the_macro_library
 )
 
 target_compile_options(h2o_c_library_shared PRIVATE ${_A_RELEASE_OPTS})
@@ -245,7 +255,7 @@ endif()
 
 set(A_BUILD_TARGET_BASENAME "h2o_c_library")
 set(A_BUILD_EXPORT_NAMESPACE "h2o_c_library")
-set(A_BUILD_DEPS "libuv;OpenSSL")
+set(A_BUILD_DEPS "libuv;OpenSSL;the_macro_library")
 
 include(CMakePackageConfigHelpers)
 configure_package_config_file(
@@ -266,7 +276,11 @@ install(FILES
 # Extra project-specific targets
 
 
-enable_testing()
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests")
+  enable_testing()
+  add_subdirectory("tests")
+endif()
 
 # Dynamically mount all subprojects (apps, examples, tests, etc.)
-add_subdirectory(tests)
+# # add_subdirectory(tests)
+# 
