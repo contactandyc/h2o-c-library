@@ -1,7 +1,7 @@
 # BUILDING
 
 This project: **H2O C Library**
-Version: **0.1.7**
+Version: **0.1.8**
 
 ## Local build
 
