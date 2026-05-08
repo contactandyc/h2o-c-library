@@ -7,7 +7,7 @@
 cmake_minimum_required(VERSION 3.20)
 
 project(h2o_c_library
-  VERSION 0.1.6
+  VERSION 0.1.7
   LANGUAGES C CXX
 )
 
