@@ -1,5 +1,7 @@
 // SPDX-FileCopyrightText: 2019–2026 Andy Curtis <contactandyc@gmail.com>
 // SPDX-License-Identifier: Apache-2.0
+//
+// Maintainer: Andy Curtis <contactandyc@gmail.com>
 
 #include "h2o-c-library/h2o_c.h"
 
@@ -28,12 +30,25 @@ typedef struct path_handler_s {
 typedef struct {
     uv_loop_t *loop;
     uv_async_t stop_async;
+
+    // Async Response Queue
+    uv_async_t send_async;
+    pthread_mutex_t queue_mutex;
+    struct h2o_c_req_s *pending_responses_head;
+
     uv_tcp_t listener;
     h2o_context_t h2o_ctx;
     h2o_accept_ctx_t accept_ctx;
     pthread_t thread;
     int id;
 } worker_ctx_t;
+
+struct h2o_c_req_s {
+    worker_ctx_t *worker;
+    h2o_req_t *h2o_req;
+    h2o_c_response_t *resp;
+    struct h2o_c_req_s *next;
+};
 
 typedef struct {
     h2o_c_options_t options;
@@ -43,6 +58,9 @@ typedef struct {
 } server_ctx_t;
 
 static server_ctx_t g_server;
+
+// Thread-local pointer so the H2O handler knows which worker loop it's running on
+static __thread worker_ctx_t *t_worker_ctx = NULL;
 
 /* --- H2O Request Handler --- */
 
@@ -84,12 +102,17 @@ static int on_req(h2o_handler_t *self, h2o_req_t *req) {
                 last_in = h;
             }
 
-            // FIX: Pass the RAW path (with query string) to the handler
             char *path_buf = strndup_safe(req->path.base, req->path.len);
 
-            h2o_c_response_t *resp = ph->cb(ph->arg, method_buf, path_buf, in_headers, body_ptr, req->entity.len);
+            // Construct the async request handle
+            h2o_c_req_t *async_req = calloc(1, sizeof(h2o_c_req_t));
+            async_req->worker = t_worker_ctx;
+            async_req->h2o_req = req;
 
-            free(path_buf); // Clean up immediately
+            // Hand off to the application callback (which returns void now)
+            ph->cb(async_req, ph->arg, method_buf, path_buf, in_headers, body_ptr, req->entity.len);
+
+            free(path_buf);
 
             h2o_c_header_t *h_curr = in_headers;
             while(h_curr) {
@@ -100,35 +123,68 @@ static int on_req(h2o_handler_t *self, h2o_req_t *req) {
                 h_curr = next;
             }
 
-            if (!resp) {
-                ph = ph->next;
-                continue;
-            }
-
-            req->res.status = resp->status_code;
-            req->res.reason = (resp->status_message) ? resp->status_message : "OK";
-
-            // Forces H2O to aggressively drop the socket after replying
-            if (resp->close_connection) {
-                req->http1_is_persistent = 0;
-            }
-
-            h2o_c_header_t *h = resp->headers;
-            while(h) {
-                h2o_add_header_by_str(&req->pool, &req->res.headers, h->key, strlen(h->key), 0, NULL, h->value, strlen(h->value));
-                h = h->next;
-            }
-
-            h2o_send_inline(req, resp->body, resp->body_len);
-
-            if (resp->destroy) resp->destroy(resp);
-            else free(resp);
-
+            // Return 0 tells H2O we accepted the request. It will keep the socket alive
+            // until we eventually call h2o_send_inline in the async callback.
             return 0;
         }
         ph = ph->next;
     }
     return -1;
+}
+
+// ============================================================================
+// Asynchronous Response Dispatcher
+// ============================================================================
+
+static void on_send_async(uv_async_t *handle) {
+    worker_ctx_t *wctx = (worker_ctx_t *)handle->data;
+
+    // Safely dequeue all pending responses
+    pthread_mutex_lock(&wctx->queue_mutex);
+    h2o_c_req_t *curr = wctx->pending_responses_head;
+    wctx->pending_responses_head = NULL;
+    pthread_mutex_unlock(&wctx->queue_mutex);
+
+    while (curr) {
+        h2o_c_req_t *next = curr->next;
+        h2o_req_t *req = curr->h2o_req;
+        h2o_c_response_t *resp = curr->resp;
+
+        req->res.status = resp->status_code;
+        req->res.reason = (resp->status_message) ? resp->status_message : "OK";
+
+        if (resp->close_connection) {
+            req->http1_is_persistent = 0;
+        }
+
+        h2o_c_header_t *h = resp->headers;
+        while(h) {
+            h2o_add_header_by_str(&req->pool, &req->res.headers, h->key, strlen(h->key), 0, NULL, h->value, strlen(h->value));
+            h = h->next;
+        }
+
+        h2o_iovec_t body = h2o_strdup(&req->pool, resp->body, resp->body_len);
+        h2o_send_inline(req, body.base, body.len);
+
+        if (resp->destroy) resp->destroy(resp);
+        else free(resp);
+
+        free(curr); // Free the request wrapper
+        curr = next;
+    }
+}
+
+void h2o_c_send_response(h2o_c_req_t *req, h2o_c_response_t *resp) {
+    req->resp = resp;
+    worker_ctx_t *wctx = req->worker;
+
+    pthread_mutex_lock(&wctx->queue_mutex);
+    req->next = wctx->pending_responses_head;
+    wctx->pending_responses_head = req;
+    pthread_mutex_unlock(&wctx->queue_mutex);
+
+    // Wake up the specific H2O libuv thread that owns this request
+    uv_async_send(&wctx->send_async);
 }
 
 // ============================================================================
@@ -147,7 +203,6 @@ static void on_accept(uv_stream_t *listener, int status) {
         return;
     }
 
-    // Libuv and H2O handle all memory tracking safely.
     h2o_socket_t *sock = h2o_uv_socket_create((uv_stream_t *)conn, (uv_close_cb)free);
     h2o_accept(&wctx->accept_ctx, sock);
 }
@@ -155,20 +210,19 @@ static void on_accept(uv_stream_t *listener, int status) {
 static void on_stop_async(uv_async_t *handle) {
     worker_ctx_t *wctx = (worker_ctx_t *)handle->data;
 
-    // 1. Immediately drop the listener to refuse new connections
     if (!uv_is_closing((uv_handle_t *)&wctx->listener)) {
         uv_close((uv_handle_t *)&wctx->listener, NULL);
     }
 
-    // 2. Unbind our async mailbox so it stops keeping the event loop alive
     if (!uv_is_closing((uv_handle_t *)&wctx->stop_async)) {
         uv_close((uv_handle_t *)&wctx->stop_async, NULL);
     }
 
-    // 3. Politely instruct H2O to flush active buffers and kill keep-alives.
-    h2o_context_request_shutdown(&wctx->h2o_ctx);
+    if (!uv_is_closing((uv_handle_t *)&wctx->send_async)) {
+        uv_close((uv_handle_t *)&wctx->send_async, NULL);
+    }
 
-    // FIX: Force the event loop to exit, overriding H2O's internal keep-alive timers
+    h2o_context_request_shutdown(&wctx->h2o_ctx);
     uv_stop(wctx->loop);
 }
 
@@ -182,12 +236,18 @@ static void close_walk_cb(uv_handle_t* handle, void* arg) {
 
 static void *worker_thread_func(void *arg) {
     worker_ctx_t *wctx = (worker_ctx_t *)arg;
+    t_worker_ctx = wctx; // Assign thread-local context pointer
 
     wctx->loop = malloc(sizeof(uv_loop_t));
     uv_loop_init(wctx->loop);
 
     uv_async_init(wctx->loop, &wctx->stop_async, on_stop_async);
     wctx->stop_async.data = wctx;
+
+    uv_async_init(wctx->loop, &wctx->send_async, on_send_async);
+    wctx->send_async.data = wctx;
+    pthread_mutex_init(&wctx->queue_mutex, NULL);
+    wctx->pending_responses_head = NULL;
 
     h2o_globalconf_t config;
     h2o_hostconf_t *hostconf;
@@ -239,11 +299,8 @@ static void *worker_thread_func(void *arg) {
         return NULL;
     }
 
-// 🚀 MAGIC PHASE 1: This loop stays alive until uv_stop is explicitly called!
     uv_run(wctx->loop, UV_RUN_DEFAULT);
 
-    // 🚀 MAGIC PHASE 2: Force clear H2O's internal queues to bypass strict developmental assertions
-    // We must do this before h2o_context_dispose so it doesn't assert on uncleared queues.
     while (!h2o_linklist_is_empty(&wctx->h2o_ctx.zero_timeout._entries)) { h2o_linklist_unlink(wctx->h2o_ctx.zero_timeout._entries.next); }
     while (!h2o_linklist_is_empty(&wctx->h2o_ctx.one_sec_timeout._entries)) { h2o_linklist_unlink(wctx->h2o_ctx.one_sec_timeout._entries.next); }
     while (!h2o_linklist_is_empty(&wctx->h2o_ctx.hundred_ms_timeout._entries)) { h2o_linklist_unlink(wctx->h2o_ctx.hundred_ms_timeout._entries.next); }
@@ -252,23 +309,18 @@ static void *worker_thread_func(void *arg) {
     while (!h2o_linklist_is_empty(&wctx->h2o_ctx.http2.idle_timeout._entries)) { h2o_linklist_unlink(wctx->h2o_ctx.http2.idle_timeout._entries.next); }
     while (!h2o_linklist_is_empty(&wctx->h2o_ctx.http2.graceful_shutdown_timeout._entries)) { h2o_linklist_unlink(wctx->h2o_ctx.http2.graceful_shutdown_timeout._entries.next); }
 
-    // 🚀 MAGIC PHASE 3: Safely dispose H2O context FIRST
-    // H2O will gracefully uv_close() its own internal timers here.
     h2o_context_dispose(&wctx->h2o_ctx);
     h2o_config_dispose(&config);
 
-    // 🚀 MAGIC PHASE 4: Now sweep and close any remaining libuv handles (like the TCP listener)
     uv_walk(wctx->loop, close_walk_cb, NULL);
-
-    // Pump the loop one final time to execute all pending uv_close callbacks
     uv_run(wctx->loop, UV_RUN_DEFAULT);
 
+    pthread_mutex_destroy(&wctx->queue_mutex);
     uv_loop_close(wctx->loop);
     free(wctx->loop);
 
     return NULL;
 }
-
 
 /* --- Public API Implementation --- */
 
@@ -331,7 +383,6 @@ void h2o_c_destroy() {
     g_server.handlers = NULL;
 }
 
-// FIX: Added safe destructor to avoid leaking dynamically allocated response components
 static void h2o_c_response_destroy(h2o_c_response_t *r) {
     if (!r) return;
 
@@ -373,8 +424,6 @@ h2o_c_response_t *h2o_c_make_response(int status, const char *msg, const char *b
 
     h1->next = h2;
     r->headers = h1;
-
-    // FIX: Using the newly defined destructor
     r->destroy = h2o_c_response_destroy;
 
     return r;

@@ -1,5 +1,7 @@
 // SPDX-FileCopyrightText: 2019–2026 Andy Curtis <contactandyc@gmail.com>
 // SPDX-License-Identifier: Apache-2.0
+//
+// Maintainer: Andy Curtis <contactandyc@gmail.com>
 
 #ifndef _H2O_C_H
 #define _H2O_C_H
@@ -32,13 +34,21 @@ struct h2o_c_response_s {
     h2o_c_header_t *headers;
     h2o_c_destroy_cb destroy;
 
-    // NEW: Direct command to H2O's internal state machine to kill Keep-Alive
+    // Direct command to H2O's internal state machine to kill Keep-Alive
     bool close_connection;
 };
 
+// Opaque handle representing an active HTTP request
+typedef struct h2o_c_req_s h2o_c_req_t;
+
 /* --- Callbacks --- */
 
-typedef h2o_c_response_t *(*h2o_c_handle_request_cb)(
+/* * The callback no longer returns a response synchronously.
+ * It MUST eventually call h2o_c_send_response(), either immediately
+ * or later from a cross-thread wakeup.
+ */
+typedef void (*h2o_c_handle_request_cb)(
+    h2o_c_req_t *req,
     void *arg,
     const char *method,
     const char *path,
@@ -72,6 +82,9 @@ void h2o_c_use(const char *method,
 void h2o_c_run();
 void h2o_c_stop();
 void h2o_c_destroy();
+
+/* Fulfills a deferred response across thread boundaries */
+void h2o_c_send_response(h2o_c_req_t *req, h2o_c_response_t *resp);
 
 /* --- Helpers --- */
 

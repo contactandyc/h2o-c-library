@@ -19,6 +19,21 @@ set_property(CACHE A_BUILD_VARIANT PROPERTY STRINGS debug memory static shared)
 
 option(A_ENABLE_COVERAGE "Enable code coverage instrumentation" OFF)
 
+# ---- Determine compiler flags based on the variant ----
+if(MSVC)
+  set(_A_DEBUG_OPTS /Zi /Od)
+  set(_A_RELEASE_OPTS /O2 /DNDEBUG)
+else()
+  set(_A_DEBUG_OPTS -O0 -g)
+  set(_A_RELEASE_OPTS -O3 -DNDEBUG)
+endif()
+
+if(A_BUILD_VARIANT STREQUAL "debug" OR A_BUILD_VARIANT STREQUAL "memory")
+  set(TEST_COMPILER_OPTS ${_A_DEBUG_OPTS})
+else()
+  set(TEST_COMPILER_OPTS ${_A_RELEASE_OPTS})
+endif()
+
 find_library(M_LIB m)
 
 find_package(libuv CONFIG REQUIRED)
@@ -41,7 +56,7 @@ add_executable(test_h2o
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/h2o_c.c
 )
 
-target_include_directories(test_h2o PRIVATE
+target_include_directories(test_h2o BEFORE PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/../src
   ${CMAKE_CURRENT_SOURCE_DIR}/../include
 )
@@ -67,9 +82,9 @@ if(M_LIB)
 endif()
 
 if(MSVC)
-  target_compile_options(test_h2o PRIVATE /W4)
+  target_compile_options(test_h2o PRIVATE /W4 ${TEST_COMPILER_OPTS})
 else()
-  target_compile_options(test_h2o PRIVATE -Wall -Wextra -Wpedantic)
+  target_compile_options(test_h2o PRIVATE -Wall -Wextra -Wpedantic ${TEST_COMPILER_OPTS})
 endif()
 
 if(A_ENABLE_COVERAGE)
