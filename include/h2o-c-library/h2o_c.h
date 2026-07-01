@@ -1,7 +1,5 @@
 // SPDX-FileCopyrightText: 2019–2026 Andy Curtis <contactandyc@gmail.com>
 // SPDX-License-Identifier: Apache-2.0
-//
-// Maintainer: Andy Curtis <contactandyc@gmail.com>
 
 #ifndef _H2O_C_H
 #define _H2O_C_H
@@ -13,8 +11,6 @@
 extern "C" {
 #endif
 
-/* --- Data Structures --- */
-
 typedef struct h2o_c_header_s {
     char *key;
     char *value;
@@ -23,7 +19,6 @@ typedef struct h2o_c_header_s {
 
 struct h2o_c_response_s;
 typedef struct h2o_c_response_s h2o_c_response_t;
-
 typedef void (*h2o_c_destroy_cb)(h2o_c_response_t *r);
 
 struct h2o_c_response_s {
@@ -33,20 +28,11 @@ struct h2o_c_response_s {
     char *status_message;
     h2o_c_header_t *headers;
     h2o_c_destroy_cb destroy;
-
-    // Direct command to H2O's internal state machine to kill Keep-Alive
     bool close_connection;
 };
 
-// Opaque handle representing an active HTTP request
 typedef struct h2o_c_req_s h2o_c_req_t;
 
-/* --- Callbacks --- */
-
-/* * The callback no longer returns a response synchronously.
- * It MUST eventually call h2o_c_send_response(), either immediately
- * or later from a cross-thread wakeup.
- */
 typedef void (*h2o_c_handle_request_cb)(
     h2o_c_req_t *req,
     void *arg,
@@ -57,45 +43,36 @@ typedef void (*h2o_c_handle_request_cb)(
     size_t body_len
 );
 
-/* --- Configuration --- */
-
 typedef struct {
     bool enable_ssl;
     const char *cert_file;
     const char *key_file;
-
     bool enable_http2;
     int thread_pool_size;
     unsigned short port;
     const char *address;
 } h2o_c_options_t;
 
-/* --- API --- */
+/* --- THE NEW OBJECT-ORIENTED API --- */
 
-void h2o_c_init(h2o_c_options_t *options);
+typedef struct h2o_c_server_s h2o_c_server_t;
 
-void h2o_c_use(const char *method,
+h2o_c_server_t *h2o_c_init(h2o_c_options_t *options);
+
+void h2o_c_use(h2o_c_server_t *server,
+               const char *method,
                const char *path,
                h2o_c_handle_request_cb cb,
                void *arg);
 
-void h2o_c_run();
-void h2o_c_stop();
-void h2o_c_destroy();
+void h2o_c_run(h2o_c_server_t *server);
+void h2o_c_stop(h2o_c_server_t *server);
+void h2o_c_destroy(h2o_c_server_t *server);
 
-/* Fulfills a deferred response across thread boundaries */
 void h2o_c_send_response(h2o_c_req_t *req, h2o_c_response_t *resp);
 
-/* --- Helpers --- */
-
-h2o_c_response_t *h2o_c_make_response(int status, const char *msg,
-                                      const char *body, size_t len,
-                                      const char *content_type);
-
-// Response that forces H2O to sever the connection immediately after transmitting
-h2o_c_response_t *h2o_c_make_response_and_close(int status, const char *msg,
-                                                const char *body, size_t len,
-                                                const char *content_type);
+h2o_c_response_t *h2o_c_make_response(int status, const char *msg, const char *body, size_t len, const char *content_type);
+h2o_c_response_t *h2o_c_make_response_and_close(int status, const char *msg, const char *body, size_t len, const char *content_type);
 
 #ifdef __cplusplus
 }

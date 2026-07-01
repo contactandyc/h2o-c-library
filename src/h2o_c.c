@@ -1,7 +1,5 @@
 // SPDX-FileCopyrightText: 2019–2026 Andy Curtis <contactandyc@gmail.com>
 // SPDX-License-Identifier: Apache-2.0
-//
-// Maintainer: Andy Curtis <contactandyc@gmail.com>
 
 #include "h2o-c-library/h2o_c.h"
 
@@ -17,8 +15,6 @@
 #define SO_REUSEPORT 15
 #endif
 
-/* --- Internal Structures --- */
-
 typedef struct path_handler_s {
     char *method;
     char *path;
@@ -27,15 +23,20 @@ typedef struct path_handler_s {
     struct path_handler_s *next;
 } path_handler_t;
 
-typedef struct {
+struct h2o_c_server_s {
+    h2o_c_options_t options;
+    path_handler_t *handlers;
+    bool running;
+    struct worker_ctx_s *workers;
+};
+
+typedef struct worker_ctx_s {
+    h2o_c_server_t *server; // Pointer back to the parent server instance
     uv_loop_t *loop;
     uv_async_t stop_async;
-
-    // Async Response Queue
     uv_async_t send_async;
     pthread_mutex_t queue_mutex;
     struct h2o_c_req_s *pending_responses_head;
-
     uv_tcp_t listener;
     h2o_context_t h2o_ctx;
     h2o_accept_ctx_t accept_ctx;
@@ -50,19 +51,7 @@ struct h2o_c_req_s {
     struct h2o_c_req_s *next;
 };
 
-typedef struct {
-    h2o_c_options_t options;
-    path_handler_t *handlers;
-    bool running;
-    worker_ctx_t *workers;
-} server_ctx_t;
-
-static server_ctx_t g_server;
-
-// Thread-local pointer so the H2O handler knows which worker loop it's running on
 static __thread worker_ctx_t *t_worker_ctx = NULL;
-
-/* --- H2O Request Handler --- */
 
 static char* strndup_safe(const char* s, size_t n) {
     char* p = malloc(n + 1);
@@ -71,7 +60,9 @@ static char* strndup_safe(const char* s, size_t n) {
 }
 
 static int on_req(h2o_handler_t *self, h2o_req_t *req) {
-    path_handler_t *ph = g_server.handlers;
+    h2o_c_server_t *server = t_worker_ctx->server;
+    path_handler_t *ph = server->handlers;
+
     while (ph) {
         bool method_match = (ph->method == NULL || ph->method[0] == '\0');
         if (!method_match) {
@@ -104,16 +95,13 @@ static int on_req(h2o_handler_t *self, h2o_req_t *req) {
 
             char *path_buf = strndup_safe(req->path.base, req->path.len);
 
-            // Construct the async request handle
             h2o_c_req_t *async_req = calloc(1, sizeof(h2o_c_req_t));
             async_req->worker = t_worker_ctx;
             async_req->h2o_req = req;
 
-            // Hand off to the application callback (which returns void now)
             ph->cb(async_req, ph->arg, method_buf, path_buf, in_headers, body_ptr, req->entity.len);
 
             free(path_buf);
-
             h2o_c_header_t *h_curr = in_headers;
             while(h_curr) {
                 h2o_c_header_t *next = h_curr->next;
@@ -122,9 +110,6 @@ static int on_req(h2o_handler_t *self, h2o_req_t *req) {
                 free(h_curr);
                 h_curr = next;
             }
-
-            // Return 0 tells H2O we accepted the request. It will keep the socket alive
-            // until we eventually call h2o_send_inline in the async callback.
             return 0;
         }
         ph = ph->next;
@@ -132,14 +117,9 @@ static int on_req(h2o_handler_t *self, h2o_req_t *req) {
     return -1;
 }
 
-// ============================================================================
-// Asynchronous Response Dispatcher
-// ============================================================================
-
 static void on_send_async(uv_async_t *handle) {
     worker_ctx_t *wctx = (worker_ctx_t *)handle->data;
 
-    // Safely dequeue all pending responses
     pthread_mutex_lock(&wctx->queue_mutex);
     h2o_c_req_t *curr = wctx->pending_responses_head;
     wctx->pending_responses_head = NULL;
@@ -169,7 +149,7 @@ static void on_send_async(uv_async_t *handle) {
         if (resp->destroy) resp->destroy(resp);
         else free(resp);
 
-        free(curr); // Free the request wrapper
+        free(curr);
         curr = next;
     }
 }
@@ -183,13 +163,8 @@ void h2o_c_send_response(h2o_c_req_t *req, h2o_c_response_t *resp) {
     wctx->pending_responses_head = req;
     pthread_mutex_unlock(&wctx->queue_mutex);
 
-    // Wake up the specific H2O libuv thread that owns this request
     uv_async_send(&wctx->send_async);
 }
-
-// ============================================================================
-// Flawless Connection Teardown Logic
-// ============================================================================
 
 static void on_accept(uv_stream_t *listener, int status) {
     if (status != 0) return;
@@ -213,11 +188,9 @@ static void on_stop_async(uv_async_t *handle) {
     if (!uv_is_closing((uv_handle_t *)&wctx->listener)) {
         uv_close((uv_handle_t *)&wctx->listener, NULL);
     }
-
     if (!uv_is_closing((uv_handle_t *)&wctx->stop_async)) {
         uv_close((uv_handle_t *)&wctx->stop_async, NULL);
     }
-
     if (!uv_is_closing((uv_handle_t *)&wctx->send_async)) {
         uv_close((uv_handle_t *)&wctx->send_async, NULL);
     }
@@ -232,11 +205,10 @@ static void close_walk_cb(uv_handle_t* handle, void* arg) {
     }
 }
 
-/* --- Worker Thread Main Loop --- */
-
 static void *worker_thread_func(void *arg) {
     worker_ctx_t *wctx = (worker_ctx_t *)arg;
-    t_worker_ctx = wctx; // Assign thread-local context pointer
+    t_worker_ctx = wctx;
+    h2o_c_server_t *server = wctx->server;
 
     wctx->loop = malloc(sizeof(uv_loop_t));
     uv_loop_init(wctx->loop);
@@ -278,7 +250,7 @@ static void *worker_thread_func(void *arg) {
     #endif
 
     struct sockaddr_in addr;
-    uv_ip4_addr(g_server.options.address, g_server.options.port, &addr);
+    uv_ip4_addr(server->options.address, server->options.port, &addr);
 
     if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
         perror("bind failed");
@@ -322,57 +294,59 @@ static void *worker_thread_func(void *arg) {
     return NULL;
 }
 
-/* --- Public API Implementation --- */
-
-void h2o_c_init(h2o_c_options_t *options) {
-    memset(&g_server, 0, sizeof(g_server));
-    if (options) g_server.options = *options;
-    else { g_server.options.port = 8080; g_server.options.address = "0.0.0.0"; g_server.options.thread_pool_size = 1; }
-    if (g_server.options.thread_pool_size < 1) g_server.options.thread_pool_size = 1;
-    if (!g_server.options.address) g_server.options.address = "0.0.0.0";
+h2o_c_server_t *h2o_c_init(h2o_c_options_t *options) {
+    h2o_c_server_t *server = calloc(1, sizeof(h2o_c_server_t));
+    if (options) server->options = *options;
+    else { server->options.port = 8080; server->options.address = "0.0.0.0"; server->options.thread_pool_size = 1; }
+    if (server->options.thread_pool_size < 1) server->options.thread_pool_size = 1;
+    if (!server->options.address) server->options.address = "0.0.0.0";
+    return server;
 }
 
-void h2o_c_use(const char *method, const char *path, h2o_c_handle_request_cb cb, void *arg) {
+void h2o_c_use(h2o_c_server_t *server, const char *method, const char *path, h2o_c_handle_request_cb cb, void *arg) {
     path_handler_t *h = calloc(1, sizeof(path_handler_t));
     if (method) h->method = strdup(method);
     if (path) h->path = strdup(path);
     h->cb = cb;
     h->arg = arg;
-    h->next = g_server.handlers;
-    g_server.handlers = h;
+    h->next = server->handlers;
+    server->handlers = h;
 }
 
-void h2o_c_run() {
-    int n_threads = g_server.options.thread_pool_size;
-    g_server.workers = calloc(n_threads, sizeof(worker_ctx_t));
-    g_server.running = true;
+void h2o_c_run(h2o_c_server_t *server) {
+    int n_threads = server->options.thread_pool_size;
+    server->workers = calloc(n_threads, sizeof(worker_ctx_t));
+    server->running = true;
 
     for (int i = 1; i < n_threads; i++) {
-        g_server.workers[i].id = i;
-        pthread_create(&g_server.workers[i].thread, NULL, worker_thread_func, &g_server.workers[i]);
+        server->workers[i].id = i;
+        server->workers[i].server = server;
+        pthread_create(&server->workers[i].thread, NULL, worker_thread_func, &server->workers[i]);
     }
-    g_server.workers[0].id = 0;
-    worker_thread_func(&g_server.workers[0]);
+    server->workers[0].id = 0;
+    server->workers[0].server = server;
+    worker_thread_func(&server->workers[0]);
 
     for (int i = 1; i < n_threads; i++) {
-        pthread_join(g_server.workers[i].thread, NULL);
+        pthread_join(server->workers[i].thread, NULL);
     }
-    free(g_server.workers);
-    g_server.workers = NULL;
+    free(server->workers);
+    server->workers = NULL;
 }
 
-void h2o_c_stop() {
-    if (!g_server.running) return;
-    g_server.running = false;
-    for (int i = 0; i < g_server.options.thread_pool_size; i++) {
-        if (g_server.workers && g_server.workers[i].loop) {
-            uv_async_send(&g_server.workers[i].stop_async);
+void h2o_c_stop(h2o_c_server_t *server) {
+    if (!server || !server->running) return;
+    server->running = false;
+    for (int i = 0; i < server->options.thread_pool_size; i++) {
+        if (server->workers && server->workers[i].loop) {
+            uv_async_send(&server->workers[i].stop_async);
         }
     }
 }
 
-void h2o_c_destroy() {
-    path_handler_t *h = g_server.handlers;
+void h2o_c_destroy(h2o_c_server_t *server) {
+    if (!server) return;
+    path_handler_t *h = server->handlers;
     while(h) {
         path_handler_t *next = h->next;
         if(h->method) free(h->method);
@@ -380,12 +354,11 @@ void h2o_c_destroy() {
         free(h);
         h = next;
     }
-    g_server.handlers = NULL;
+    free(server);
 }
 
 static void h2o_c_response_destroy(h2o_c_response_t *r) {
     if (!r) return;
-
     if (r->status_message) free(r->status_message);
     if (r->body) free(r->body);
 

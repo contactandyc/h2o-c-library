@@ -248,8 +248,8 @@ MACRO_TEST(test_keepalive_pipelining) {
 
 /* --- Main --- */
 static void *server_bg_thread(void *arg) {
-    (void)arg;
-    h2o_c_run();
+    h2o_c_server_t *server = (h2o_c_server_t *)arg;
+    h2o_c_run(server);
     return NULL;
 }
 
@@ -260,14 +260,18 @@ int main(void) {
     opts.port = TEST_PORT;
     opts.thread_pool_size = 2;
     opts.address = TEST_HOST;
-    h2o_c_init(&opts);
 
-    h2o_c_use("GET", "/test/ping", handle_ping, NULL);
-    h2o_c_use(NULL,  "/test/echo", handle_echo, NULL);
-    h2o_c_use("GET", "/test/json", handle_json, NULL);
+    // FIX: Initialize the server instance
+    h2o_c_server_t *server = h2o_c_init(&opts);
+
+    // FIX: Pass the server pointer to the use functions
+    h2o_c_use(server, "GET", "/test/ping", handle_ping, NULL);
+    h2o_c_use(server, NULL,  "/test/echo", handle_echo, NULL);
+    h2o_c_use(server, "GET", "/test/json", handle_json, NULL);
 
     pthread_t tid;
-    pthread_create(&tid, NULL, server_bg_thread, NULL);
+    // FIX: Pass the server to the background thread
+    pthread_create(&tid, NULL, server_bg_thread, server);
 
     usleep(200000);
 
@@ -285,8 +289,10 @@ int main(void) {
 
     macro_run_all("h2o_c_integration", tests, test_count);
 
-    // We optionally call h2o_c_stop() and h2o_c_destroy() in a full cleanup scenario,
-    // but the test runner exiting will tear down the process anyway.
+    // FIX: Gracefully stop and destroy the instance
+    h2o_c_stop(server);
+    pthread_join(tid, NULL);
+    h2o_c_destroy(server);
 
     return 0;
 }
